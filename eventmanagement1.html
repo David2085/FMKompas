@@ -8,6 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -906,11 +910,22 @@ const questions = [
 ];
 
 const CARD_PTS = 5, QUIZ_PTS = 2;
-function getUser(){ return localStorage.getItem('fmk_user')||'Anoniem'; }
-function getScores(){ try{return JSON.parse(localStorage.getItem('fmk_scores')||'{}');}catch(e){return{};} }
-function addPoints(pts){ const u=getUser(); if(\!u||u==='Anoniem')return; const s=getScores(); s[u]=(s[u]||0)+pts; localStorage.setItem('fmk_scores',JSON.stringify(s)); updatePtsDisplay(); }
-function getUserPts(){ const s=getScores(); return s[getUser()]||0; }
-function updatePtsDisplay(){ document.getElementById('pts-display').textContent=getUserPts(); }
+let _currentUser = null;
+let _currentPts  = 0;
+
+async function addPoints(pts) {
+  if (!_currentUser) return;
+  _currentPts += pts;
+  updatePtsDisplay();
+  try {
+    await db.collection('scores').doc(_currentUser.uid).update({
+      pts: firebase.firestore.FieldValue.increment(pts),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { console.error('Score opslaan mislukt:', e); }
+}
+function getUserPts() { return _currentPts; }
+function updatePtsDisplay() { document.getElementById('pts-display').textContent = _currentPts; }
 
 /* ══ NAVIGATION ══ */
 function showView(id, title) {
@@ -1074,7 +1089,30 @@ function showFcDone(){
 function repeatMissed(){deck=shuffleArr([...missed]);current=0;known=0;missed=[];flipped=false;fcPtsEarned=0;document.getElementById('fc-done').style.display='none';document.getElementById('card-area').style.display='flex';document.getElementById('fc-actions').style.display='flex';updateFcStats();showCard();}
 
 /* ══ INIT ══ */
-updatePtsDisplay();
+/* ── FIREBASE INIT ── */
+const firebaseConfig = {
+  apiKey:            "AIzaSyBB397Wk2eqpBjic8E7aGV1mTgIjhQ21a8",
+  authDomain:        "fmkompas-ff8bc.firebaseapp.com",
+  projectId:         "fmkompas-ff8bc",
+  storageBucket:     "fmkompas-ff8bc.firebasestorage.app",
+  messagingSenderId: "487972024689",
+  appId:             "1:487972024689:web:712c3117080745d14746d0"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+firebase.auth().onAuthStateChanged(async user => {
+  if (!user) { window.location.href = 'index.html'; return; }
+  _currentUser = user;
+  try {
+    const snap = await db.collection('scores').doc(user.uid).get();
+    if (snap.exists) _currentPts = snap.data().pts || 0;
+  } catch(e) { console.warn('Score laden mislukt:', e); }
+  updatePtsDisplay();
+});
+
+/* ── INIT ── */
 loadDeck();
 </script>
 </body>
